@@ -1,0 +1,527 @@
+<!DOCTYPE html><html lang="es"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventario General</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            padding: 10px; 
+            text-align: center; 
+        }
+        input, select, button { 
+            margin: 8px; 
+            padding: 10px; 
+            width: 90%; 
+            max-width: 400px; 
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px; 
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: center; 
+        }
+        th { 
+            background-color: #4CAF50; 
+            color: white; 
+        }
+        td input { 
+            width: 80%; 
+            padding: 8px; 
+            text-align: center; 
+            border: 1px solid #ddd;
+        }
+        .categoria-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin: 5px auto;
+            width: 90%;
+            max-width: 400px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        #lista-categorias {
+            margin: 15px 0;
+        }
+        .btn-reiniciar {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            margin: 15px 0;
+            cursor: pointer;
+        }
+        #productos-autocompletados div {
+            padding: 8px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .alerta-stock-bajo {
+            background-color: #ffebee !important;
+            animation: parpadeo 1s infinite;
+        }
+        @keyframes parpadeo {
+            0% { background-color: #ffebee; }
+            50% { background-color: #ffcdd2; }
+            100% { background-color: #ffebee; }
+        }
+        .alerta-desplegable {
+            position: relative;
+            margin: 20px auto;
+            width: 90%;
+            max-width: 600px;
+        }
+        .boton-alerta {
+            background-color: #d32f2f;
+            color: white;
+            padding: 15px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .boton-alerta:hover {
+            background-color: #b71c1c;
+        }
+        .contenido-alerta {
+            display: none;
+            position: absolute;
+            background-color: white;
+            width: 100%;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            z-index: 1;
+            border-radius: 0 0 5px 5px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .mostrar {
+            display: block;
+        }
+        .item-alerta {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            color: #d32f2f;
+            background-color: #ffebee;
+            text-align: left;
+        }
+        .contador-alertas {
+            background-color: white;
+            color: #d32f2f;
+            padding: 3px 8px;
+            border-radius: 12px;
+            margin-left: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body><h2>Inventario General</h2><!-- Alertas desplegable --><div class="alerta-desplegable">
+    <button class="boton-alerta" onclick="toggleAlertas()">
+        Alertas de Stock 
+        <span id="contador-alertas" class="contador-alertas">0</span>
+    </button>
+    <div id="contenido-alertas" class="contenido-alerta"></div>
+</div><!-- Buscador --><div>
+    <input type="text" id="buscador" placeholder="Buscar producto..." oninput="filtrarProductos()">
+    <div id="productos-autocompletados"></div>
+</div><!-- Agregar stock --><input type="number" id="cantidad" placeholder="Cantidad">
+<button onclick="agregarStock()">Agregar al Stock</button><!-- Nuevo producto --><h3>Agregar Nuevo Producto</h3>
+<input type="text" id="nuevo-producto" placeholder="Nombre del producto">
+<input type="number" id="nuevo-cantidad" placeholder="Cantidad inicial" value="0">
+<input type="number" id="nuevo-stock-minimo" placeholder="Stock mínimo" value="0">
+<select id="nueva-categoria"></select>
+<button onclick="agregarProducto()">Añadir Producto</button><!-- Nueva categoría --><h3>Agregar Nueva Categoría</h3>
+<input type="text" id="nueva-categoria-input" placeholder="Nombre de la categoría">
+<button onclick="agregarCategoria()">Agregar Categoría</button><!-- Lista de categorías --><h3>Categorías Existentes</h3>
+<div id="lista-categorias"></div><!-- Tabla de stock --><h3>Stock Actual</h3>
+<button class="btn-reiniciar" onclick="reiniciarCantidades()">Reiniciar todas las cantidades a cero</button>
+<div style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th>Categoría</th>
+                <th>Producto</th>
+                <th>Cantidad</th>
+                <th>Stock Mínimo</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="tabla-stock"></tbody>
+    </table>
+</div><button onclick="exportarPDF()">Exportar a PDF</button>
+
+<script>
+    // Datos iniciales
+    let inventario = JSON.parse(localStorage.getItem("inventario")) || {};
+    let categorias = JSON.parse(localStorage.getItem("categorias")) || [];
+
+    // ================= FUNCIONES PRINCIPALES =================
+    function guardarInventario() {
+        localStorage.setItem("inventario", JSON.stringify(inventario));
+    }
+
+    function guardarCategorias() {
+        localStorage.setItem("categorias", JSON.stringify(categorias));
+    }
+
+    function agregarStock() {
+        const producto = document.getElementById("buscador").value.trim();
+        const cantidad = parseInt(document.getElementById("cantidad").value);
+
+        if (producto && !isNaN(cantidad) && cantidad > 0) {
+            let encontrado = false;
+            let productoInfo = null;
+
+            Object.keys(inventario).forEach(categoria => {
+                if (inventario[categoria][producto]) {
+                    inventario[categoria][producto].cantidad += cantidad;
+                    encontrado = true;
+                    productoInfo = inventario[categoria][producto];
+                }
+            });
+
+            if (encontrado) {
+                guardarInventario();
+                actualizarLista();
+                
+                if(productoInfo.cantidad < productoInfo.stockMinimo) {
+                    alert(`¡ATENCIÓN! ${producto} sigue bajo stock mínimo (${productoInfo.cantidad}/${productoInfo.stockMinimo})`);
+                } else {
+                    alert(`+${cantidad} unidades agregadas a ${producto}`);
+                }
+            } else {
+                alert("Producto no encontrado");
+            }
+        } else {
+            alert("Ingrese un producto válido y cantidad numérica");
+        }
+        document.getElementById("cantidad").value = "";
+    }
+
+    function agregarCategoria() {
+        const input = document.getElementById("nueva-categoria-input");
+        const nuevaCat = input.value.trim();
+        
+        if (nuevaCat && !categorias.includes(nuevaCat)) {
+            categorias.push(nuevaCat);
+            inventario[nuevaCat] = {};
+            guardarCategorias();
+            guardarInventario();
+            actualizarDatalist();
+            actualizarListaCategorias();
+            input.value = "";
+        } else {
+            alert("Error: Categoría inválida o repetida");
+        }
+    }
+
+    function agregarProducto() {
+        const nombre = document.getElementById("nuevo-producto").value.trim();
+        const cantidad = parseInt(document.getElementById("nuevo-cantidad").value);
+        const stockMinimo = parseInt(document.getElementById("nuevo-stock-minimo").value);
+        const categoria = document.getElementById("nueva-categoria").value;
+
+        if (nombre && !isNaN(cantidad) && categoria) {
+            if (!inventario[categoria]) inventario[categoria] = {};
+            inventario[categoria][nombre] = { 
+                cantidad: cantidad || 0, 
+                stockMinimo: stockMinimo || 0 
+            };
+            guardarInventario();
+            actualizarLista();
+            document.getElementById("nuevo-producto").value = "";
+        }
+    }
+
+    // ================= FUNCIONES SECUNDARIAS =================
+    function actualizarDatalist() {
+        const select = document.getElementById("nueva-categoria");
+        select.innerHTML = "";
+        categorias.forEach(cat => {
+            const option = document.createElement("option");
+            option.value = cat;
+            option.textContent = cat;
+            select.appendChild(option);
+        });
+    }
+
+    function actualizarListaCategorias() {
+        const lista = document.getElementById("lista-categorias");
+        lista.innerHTML = "";
+        categorias.forEach(cat => {
+            const div = document.createElement("div");
+            div.className = "categoria-item";
+            div.innerHTML = `
+                <span>${cat}</span>
+                <input type="checkbox" onchange="eliminarCategoria('${cat}')">
+            `;
+            lista.appendChild(div);
+        });
+    }
+
+    function actualizarLista() {
+        const tbody = document.getElementById("tabla-stock");
+        tbody.innerHTML = "";
+        
+        Object.entries(inventario).forEach(([categoria, productos]) => {
+            Object.entries(productos).forEach(([producto, datos]) => {
+                const fila = document.createElement("tr");
+                if(datos.cantidad < datos.stockMinimo) {
+                    fila.classList.add('alerta-stock-bajo');
+                }
+                fila.innerHTML = `
+                    <td>${categoria}</td>
+                    <td>${producto}</td>
+                    <td><input type="number" value="${datos.cantidad}" 
+                           onchange="actualizarCantidad('${categoria.replace(/'/g, "\\'")}', '${producto.replace(/'/g, "\\'")}', this.value)"></td>
+                    <td><input type="number" value="${datos.stockMinimo}" 
+                           onchange="actualizarStockMinimo('${categoria.replace(/'/g, "\\'")}', '${producto.replace(/'/g, "\\'")}', this.value)"></td>
+                    <td><button onclick="eliminarProducto('${categoria.replace(/'/g, "\\'")}', '${producto.replace(/'/g, "\\'")}')">Eliminar</button></td>
+                `;
+                tbody.appendChild(fila);
+            });
+        });
+        verificarAlertas();
+    }
+
+    // ================= FUNCIONES DE ACTUALIZACIÓN =================
+    function actualizarCantidad(categoria, producto, cantidad) {
+        if (!isNaN(cantidad)) {
+            inventario[categoria][producto].cantidad = parseInt(cantidad);
+            guardarInventario();
+            actualizarLista();
+        } else {
+            alert("Ingrese un valor numérico válido para la cantidad");
+        }
+    }
+
+    function actualizarStockMinimo(categoria, producto, stockMinimo) {
+        if (!isNaN(stockMinimo)) {
+            inventario[categoria][producto].stockMinimo = parseInt(stockMinimo);
+            guardarInventario();
+            actualizarLista();
+        } else {
+            alert("Ingrese un valor numérico válido para el stock mínimo");
+        }
+    }
+
+    // ================= SISTEMA DE ALERTAS =================
+    function verificarAlertas() {
+        const alertas = [];
+        
+        Object.entries(inventario).forEach(([categoria, productos]) => {
+            Object.entries(productos).forEach(([producto, datos]) => {
+                if(datos.cantidad < datos.stockMinimo) {
+                    alertas.push({
+                        producto: producto,
+                        cantidad: datos.cantidad,
+                        minimo: datos.stockMinimo,
+                        categoria: categoria
+                    });
+                }
+            });
+        });
+
+        const contador = document.getElementById('contador-alertas');
+        const contenido = document.getElementById('contenido-alertas');
+        contador.textContent = alertas.length;
+
+        contenido.innerHTML = '';
+        
+        if(alertas.length > 0) {
+            alertas.forEach(alerta => {
+                const div = document.createElement('div');
+                div.className = 'item-alerta';
+                div.innerHTML = `
+                    <strong>${alerta.producto}</strong> (${alerta.categoria})<br>
+                    <small>Actual: ${alerta.cantidad} - Mínimo: ${alerta.minimo}</small>
+                `;
+                contenido.appendChild(div);
+            });
+        } else {
+            const div = document.createElement('div');
+            div.className = 'item-alerta';
+            div.textContent = "✅ Todo el stock está en orden";
+            contenido.appendChild(div);
+        }
+    }
+
+    function toggleAlertas() {
+        const contenido = document.getElementById('contenido-alertas');
+        contenido.classList.toggle('mostrar');
+    }
+
+    // Cerrar el desplegable al hacer clic fuera
+    document.addEventListener('click', function(event) {
+        const alertaDesplegable = document.querySelector('.alerta-desplegable');
+        if (!alertaDesplegable.contains(event.target)) {
+            document.getElementById('contenido-alertas').classList.remove('mostrar');
+        }
+    });
+
+    // ================= FUNCIONES DE ELIMINACIÓN =================
+    function eliminarCategoria(categoria) {
+        if (confirm(`¿Eliminar categoría "${categoria}" y todos sus productos?`)) {
+            delete inventario[categoria];
+            categorias = categorias.filter(c => c !== categoria);
+            guardarInventario();
+            guardarCategorias();
+            actualizarListaCategorias();
+            actualizarLista();
+            actualizarDatalist();
+        }
+    }
+
+    function eliminarProducto(categoria, producto) {
+        if (confirm(`¿Eliminar "${producto}" de "${categoria}"?`)) {
+            delete inventario[categoria][producto];
+            guardarInventario();
+            actualizarLista();
+        }
+    }
+
+    function reiniciarCantidades() {
+        if (confirm("¿Estás seguro de que deseas reiniciar todas las cantidades a cero?")) {
+            Object.keys(inventario).forEach(categoria => {
+                Object.keys(inventario[categoria]).forEach(producto => {
+                    inventario[categoria][producto].cantidad = 0;
+                });
+            });
+            guardarInventario();
+            actualizarLista();
+        }
+    }
+
+    function filtrarProductos() {
+        const query = document.getElementById("buscador").value.toLowerCase();
+        const productosEncontrados = [];
+
+        Object.keys(inventario).forEach(categoria => {
+            Object.keys(inventario[categoria]).forEach(producto => {
+                if (producto.toLowerCase().includes(query)) {
+                    productosEncontrados.push(producto);
+                }
+            });
+        });
+
+        const autocompletadosDiv = document.getElementById("productos-autocompletados");
+        autocompletadosDiv.innerHTML = "";
+
+        productosEncontrados.forEach(producto => {
+            const div = document.createElement("div");
+            div.textContent = producto;
+            div.onclick = () => {
+                document.getElementById("buscador").value = producto;
+                autocompletadosDiv.innerHTML = "";
+            };
+            autocompletadosDiv.appendChild(div);
+        });
+    }
+
+    function exportarPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        // Configuración inicial
+        doc.setFontSize(18);
+        doc.text("Reporte de Inventario", 15, 15);
+        
+        // Datos para la tabla
+        const rows = [];
+        const comprasNecesarias = [];
+
+        Object.entries(inventario).forEach(([categoria, productos]) => {
+            Object.entries(productos).forEach(([producto, datos]) => {
+                // Agregar TODOS los productos a la tabla
+                rows.push([
+                    categoria,
+                    producto,
+                    datos.cantidad,
+                    datos.stockMinimo
+                ]);
+                
+                // Registrar solo los necesarios para compra
+                if(datos.cantidad < datos.stockMinimo) {
+                    comprasNecesarias.push({
+                        producto: producto,
+                        categoria: categoria,
+                        necesario: datos.stockMinimo - datos.cantidad
+                    });
+                }
+            });
+        });
+
+        // Generar tabla principal
+        doc.autoTable({
+            head: [['Categoría', 'Producto', 'Cantidad', 'Stock Mínimo']],
+            body: rows,
+            startY: 25,
+            styles: { 
+                fontSize: 10,
+                cellPadding: 3
+            },
+            headStyles: { 
+                fillColor: [76, 175, 80],
+                textColor: [255, 255, 255]
+            },
+            didParseCell: (data) => {
+                if(data.column.index === 2 && data.cell.raw < data.row.raw[3]) {
+                    data.cell.styles.fillColor = [255, 205, 210];
+                    data.cell.styles.textColor = [213, 47, 47];
+                }
+            }
+        });
+
+        // Agregar resumen de compras si es necesario
+        if(comprasNecesarias.length > 0) {
+            doc.setFontSize(14);
+            doc.text("Compras Necesarias:", 15, doc.autoTable.previous.finalY + 15);
+            
+            const resumenData = comprasNecesarias.map(item => [
+                item.producto,
+                item.categoria,
+                item.necesario
+            ]);
+
+            doc.autoTable({
+                head: [['Producto', 'Categoría', 'Cantidad a Comprar']],
+                body: resumenData,
+                startY: doc.autoTable.previous.finalY + 20,
+                headStyles: { 
+                    fillColor: [244, 67, 54],
+                    textColor: [255, 255, 255]
+                },
+                columnStyles: {
+                    2: { 
+                        fillColor: [255, 205, 210],
+                        fontStyle: 'bold'
+                    }
+                },
+                styles: { 
+                    fontSize: 10,
+                    cellPadding: 3
+                }
+            });
+        }
+
+        doc.save('inventario.pdf');
+    }
+
+    // Inicialización
+    actualizarDatalist();
+    actualizarLista();
+    actualizarListaCategorias();
+    verificarAlertas();
+</script></body>
+</html>
